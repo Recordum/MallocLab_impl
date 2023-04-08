@@ -38,6 +38,7 @@ team_t team = {
 #define DSIZE 8 /* Double word size (bytes) */
 #define CHUNKSIZE (1<<12) /* Extend heap by this amount (bytes) */
 #define MAX(x, y) ((x) > (y)? (x) : (y))
+<<<<<<< HEAD
 
 /* Pack a size and allocated bit into a word */
 #define PACK(size, alloc) ((size) | (alloc))
@@ -46,6 +47,16 @@ team_t team = {
 #define GET(p) (*(unsigned int *)(p))
 #define PUT(p, val) (*(unsigned int *)(p) = (val))
 
+=======
+
+/* Pack a size and allocated bit into a word */
+#define PACK(size, alloc) ((size) | (alloc))
+
+/* Read and write a word at address p */
+#define GET(p) (*(unsigned int *)(p))
+#define PUT(p, val) (*(unsigned int *)(p) = (val))
+
+>>>>>>> 963cce534a2f01c0f0f593527e163e1363417e1c
 /* Read the size and allocated fields from address p */
 #define GET_SIZE(p) (GET(p) & ~0x7)
 #define GET_ALLOC(p) (GET(p) & 0x1)
