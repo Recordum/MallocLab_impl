@@ -2,10 +2,10 @@
     "tasks": [
         {
             "type": "cppbuild",
-            "label": "C/C++: gcc-11 활성 파일 빌드",
+            "label": "build",
             "command": "make",
             "args": [
-                "re"
+                "mdriver"
                 // "-fdiagnostics-color=always",
                 // "-g",
                 // "${file}",
