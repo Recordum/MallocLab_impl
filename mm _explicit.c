@@ -53,13 +53,15 @@ team_t team = {
 /* rounds up to the nearest multiple of ALIGNMENT */
 #define ALIGN(size) (((size) + (ALIGNMENT-1)) & ~0x7)
 
+
 #define SIZE_T_SIZE (ALIGN(sizeof(size_t)))
 
-static unsigned int[9];
 
 static void init_prologue(void* start_addr) {
-    PUT(start_addr + WSIZE, PACK(DSIZE,1));
-    PUT(start_addr + 2*WSIZE, PACK(DSIZE,1));
+    PUT(start_addr + WSIZE, PACK(2*DSIZE,1));
+    PUT(start_addr + 2*WSIZE, 0);
+    PUT(start_addr + 3*WSIZE, 0);
+    PUT(start_addr + 4*WSIZE, PACK(2*DSIZE,1));
     return;
 }
 static void init_epilogue(void* start_addr){
@@ -94,11 +96,6 @@ static int is_previous_unallocated(void *previous_footer, void *next_header){
 }
 static int is_previous_and_next_unallocated(void *previous_footer, void *next_header){
     return !GET_ALLOC(previous_footer) && !GET_ALLOC(next_header);
-}
-static void find_index(size_t size){
-    for (int i = 0; i < 9 ; i++){
-        if (size < 2^(i-4))
-    }
 }
 static void  place_free_pointer_link(void* bp){
     unsigned int* start_address = mem_heap_lo() + DSIZE;
@@ -185,7 +182,7 @@ static void* extend_heap(size_t words){
 }
 
 int mm_init(void){
-    unsigned int* start_addr = mem_sbrk(4*WSIZE);
+    unsigned int* start_addr = mem_sbrk(6*WSIZE);
     if (is_heap_over_flow(start_addr)) {
         return -1;
     }
@@ -196,7 +193,6 @@ int mm_init(void){
     if (is_heap_over_flow(extend_heap(CHUNKSIZE/WSIZE))){
         return -1;
     }
-
     return 0;
 }
 
