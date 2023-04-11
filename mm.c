@@ -1,5 +1,3 @@
-
-
 #include <stdio.h>
 #include <stdlib.h>
 #include <assert.h>
@@ -45,7 +43,6 @@ team_t team = {
 #define HDRP(bp) ((char *)(bp) - WSIZE)
 #define FTRP(bp) ((char *)(bp) + GET_SIZE(HDRP(bp)) - DSIZE)
 #define PREP(bp) ((char *)(bp) + WSIZE)
-#define SUCC(bp) PREP(bp) - WS
 
 /* Given block ptr bp, compute address of next and previous blocks */
 #define NEXT_BLKP(bp) ((char *)(bp) + GET_SIZE(((char *)(bp) - WSIZE)))
@@ -59,12 +56,10 @@ team_t team = {
 
 #define SIZE_T_SIZE (ALIGN(sizeof(size_t)))
 
-static unsigned int* root_pointer;
-static unsigned int* last_pointer;
 
 static void init_prologue(void* start_addr) {
     PUT(start_addr + WSIZE, PACK(2*DSIZE,1));
-    PUT(start_addr + 2* WSIZE, start_addr + 6*WSIZE);
+    PUT(start_addr + 2*WSIZE, 0);
     PUT(start_addr + 3*WSIZE, 0);
     PUT(start_addr + 4*WSIZE, PACK(2*DSIZE,1));
     return;
@@ -105,8 +100,10 @@ static int is_previous_and_next_unallocated(void *previous_footer, void *next_he
 static void  place_free_pointer_link(void* bp){
     unsigned int* start_address = mem_heap_lo() + DSIZE;
     while(1){
-        if (*start_address == bp){
-            PUT(PREP(bp), (void*)start_address + WSIZE);
+        if (*start_address == NULL){
+            PUT(PREP(bp), (unsigned int*)(PREP(start_address)));
+            PUT(start_address, bp);
+            PUT(bp, 0);
             return;
         }
         if (*start_address > (unsigned int)bp){
@@ -123,8 +120,8 @@ static void  place_free_pointer_link(void* bp){
 static void *coalesce(void *bp){
     unsigned int* successor_address;
     unsigned int* predecessor_address;
-    char* previous_footer = FTRP(PREV_BLKP(bp));
     char* next_header = HDRP(NEXT_BLKP(bp));
+    char* previous_footer = FTRP(PREV_BLKP(bp));
     size_t size = GET_SIZE(HDRP(bp));
     if(is_previous_and_next_allocated(previous_footer, next_header)){
         place_free_pointer_link(bp);
@@ -137,7 +134,9 @@ static void *coalesce(void *bp){
         PUT(bp, successor_address);
         PUT(PREP(bp), predecessor_address);
         PUT((char*)predecessor_address - WSIZE, bp);
-        PUT(PREP(successor_address), PREP(bp));
+        if(successor_address != NULL){
+           PUT(PREP(successor_address), PREP(bp));     
+        }
         PUT(HDRP(bp), PACK(size,0));
         PUT(FTRP(bp), PACK(size,0));
         return bp;
@@ -152,8 +151,14 @@ static void *coalesce(void *bp){
     if(is_previous_and_next_unallocated(previous_footer, next_header)){
         size += GET_SIZE(HDRP(PREV_BLKP(bp))) + GET_SIZE(FTRP(NEXT_BLKP(bp)));
         successor_address = GET(NEXT_BLKP(bp));
-        PUT(HDRP(PREV_BLKP(bp)), successor_address);
-        PUT(PREP(successor_address), PREP(HDRP(PREV_BLKP(bp))));
+        if (successor_address == NULL){
+            PUT(PREV_BLKP(bp), successor_address);
+            PUT(FTRP(NEXT_BLKP(bp)), PACK(size,0));
+            PUT(HDRP(PREV_BLKP(bp)), PACK(size,0));
+            return bp;
+        }
+        PUT(PREV_BLKP(bp), successor_address);
+        PUT(PREP(successor_address), PREP(PREV_BLKP(bp)));
         PUT(FTRP(NEXT_BLKP(bp)), PACK(size,0));
         PUT(HDRP(PREV_BLKP(bp)), PACK(size,0));
         bp = PREV_BLKP(bp);
@@ -164,7 +169,7 @@ static void *coalesce(void *bp){
 
 static void* extend_heap(size_t words){
     unsigned int *bp;
-    size_t size;ls
+    size_t size;
     size = even_number_words_alignment(words);
     bp = mem_sbrk(size);
     if((long)bp == -1){
@@ -195,7 +200,6 @@ int mm_init(void){
 size_t define_adjust_size(size_t size){
     if (size <= DSIZE){
         return 2*DSIZE;
-
     }
     return DSIZE * (((size + (DSIZE) + (DSIZE - 1)) / DSIZE));
 }
@@ -204,7 +208,6 @@ void *find_with_first_fit(size_t adjust_size){
     unsigned int* start_address = (unsigned int*)(mem_heap_lo() + DSIZE);
     while(1){
         if(start_address == NULL){
-            *start_address = mem_heap_hi;
             return NULL;
         }
         if(!GET_ALLOC(HDRP(start_address)) && GET_SIZE(HDRP(start_address)) >= adjust_size){
@@ -216,31 +219,29 @@ void *find_with_first_fit(size_t adjust_size){
 void place(unsigned int* bp, size_t adjust_size){
     size_t total_size = GET_SIZE(HDRP(bp));
     if (total_size - adjust_size < 2*DSIZE){
-        init_header_and_footer(bp, adjust_size+DSIZE,1);
-        PUT((void*)GET(PREP(bp)) - WSIZE, *bp);
-        PUT(PREP(*bp), GET(PREP(bp)));
-        place_free_pointer_link(bp);
+        init_header_and_footer(bp, total_size,1);
+        PUT((char *)(GET(PREP(bp)))-WSIZE, GET(bp));
+        if(*bp == NULL){
+            return;
+        }
+        PUT(PREP(GET(bp)), GET(PREP(bp)));
         return;
     }
     init_header_and_footer(bp, adjust_size, 1);
-    if (total_size - adjust_size == 0){
-        PUT((void*)GET(PREP(bp)) - WSIZE, *bp);
-        if ((unsigned int*)(*bp) == 0){
-            return;
-        }
-        PUT(PREP(*bp), GET(PREP(bp)));
-        return;
-    }   
     init_header_and_footer(NEXT_BLKP(bp), total_size-adjust_size, 0);
-    place_free_pointer_link(NEXT_BLKP(bp));
 
-    // PUT(NEXT_BLKP(bp), GET(bp));
-    // PUT(PREP(NEXT_BLKP(bp)), GET(PREP(bp)));
-    // PUT((void*)GET(PREP(NEXT_BLKP(bp)))-WSIZE, (unsigned int*)NEXT_BLKP(bp));
-    // if (*bp == NULL){
-    //     return;
-    // }
-    // PUT(PREP(GET(NEXT_BLKP(bp))), (unsigned int*)PREP(NEXT_BLKP(bp)));
+    PUT((char *)(GET(PREP(bp)))-WSIZE, (unsigned int*)NEXT_BLKP(bp));
+    
+    if(*bp == NULL){
+        PUT(PREP(NEXT_BLKP(bp)), GET(PREP(bp)));
+        // printf("next_bp_value : %x\n",GET(NEXT_BLKP(bp)));
+        PUT(NEXT_BLKP(bp), 0);
+        // printf("next_bp_value : %x\n",GET(NEXT_BLKP(bp)));
+        return;
+    }
+    PUT(PREP(GET(bp)), (unsigned int*)PREP(NEXT_BLKP(bp)));
+    PUT(NEXT_BLKP(bp), GET(bp));
+    PUT(PREP(NEXT_BLKP(bp)), GET(PREP(bp)));
 }
 int find_right_fit(void* bp){
     return bp != NULL;
@@ -260,7 +261,6 @@ void *mm_malloc(size_t size){
     bp = find_with_first_fit(adjust_size);
     if (find_right_fit(bp)){
         place(bp, adjust_size);
-       
         return (void *) bp;
     }
     extend_size = MAX(adjust_size, CHUNKSIZE);
@@ -305,17 +305,6 @@ void *mm_realloc(void *ptr, size_t size){
     mm_free(ptr);
     return newp;
 }
-
-
-
-
-
-
-
-
-
-
-
 
 
 
