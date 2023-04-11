@@ -55,7 +55,7 @@ team_t team = {
 
 #define SIZE_T_SIZE (ALIGN(sizeof(size_t)))
 
-static unsigned int[9];
+static unsigned int segregated_free_list[9];
 
 static void init_prologue(void* start_addr) {
     PUT(start_addr + WSIZE, PACK(DSIZE,1));
@@ -95,9 +95,14 @@ static int is_previous_unallocated(void *previous_footer, void *next_header){
 static int is_previous_and_next_unallocated(void *previous_footer, void *next_header){
     return !GET_ALLOC(previous_footer) && !GET_ALLOC(next_header);
 }
-static void find_index(size_t size){
+static unsigned int* find_index(size_t size){
     for (int i = 0; i < 9 ; i++){
-        if (size < 2^(i-4))
+        if (size > 2^(12)){
+            return &segregated_free_list[8];
+        }
+        if (size == 2^(i+4)){
+            return &segregated_free_list[i];
+        }
     }
 }
 static void  place_free_pointer_link(void* bp){
