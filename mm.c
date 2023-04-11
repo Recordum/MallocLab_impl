@@ -41,12 +41,10 @@ team_t team = {
 
 /* Given block ptr bp, compute address of its header and footer */
 #define HDRP(bp) ((char *)(bp) - WSIZE)
-#define FTRP(bp) ((char *)(bp) + GET_SIZE(HDRP(bp)) - DSIZE)
-#define PREP(bp) ((char *)(bp) + WSIZE)
-
+#define NXRP(bp) ((char *)(bp) - WSIZE)
+#define BPRP(bn) ((char *)(bn) - WSIZE)
 /* Given block ptr bp, compute address of next and previous blocks */
 #define NEXT_BLKP(bp) ((char *)(bp) + GET_SIZE(((char *)(bp) - WSIZE)))
-#define PREV_BLKP(bp) ((char *)(bp) - GET_SIZE(((char *)(bp) - DSIZE)))
 /* single word (4) or double word (8) alignment */
 #define ALIGNMENT 8
 
@@ -55,22 +53,17 @@ team_t team = {
 
 #define SIZE_T_SIZE (ALIGN(sizeof(size_t)))
 
-static unsigned int segregated_free_list[9];
+static unsigned int segregated_free_list[30];
 
-static void init_prologue(void* start_addr) {
-    PUT(start_addr + WSIZE, PACK(DSIZE,1));
-    PUT(start_addr + 2*WSIZE, PACK(DSIZE,1));
-    return;
-}
+
 static void init_epilogue(void* start_addr){
-    PUT(start_addr + 3*WSIZE, PACK(1,0));
+    PUT(start_addr + WSIZE, PACK(1,0));
 }
 static void init_alignment_padding(void* start_addr){
     PUT(start_addr, 0);
 }
-static void init_header_and_footer(void* bp, size_t size, int allocate){
+static void init_header(void* bp, size_t size){
     PUT(HDRP(bp), PACK(size,allocate));
-    PUT(FTRP(bp), PACK(size,allocate));
 }
 static int is_heap_over_flow(void* start_addr){
     return start_addr == (void *)-1;
@@ -82,99 +75,27 @@ static size_t even_number_words_alignment(size_t words){
     return words*WSIZE;
 }
 
-
-static int is_previous_and_next_allocated(void *previous_footer, void *next_header){
-    return GET_ALLOC(previous_footer) && GET_ALLOC(next_header);
-}
-static int is_next_unallocated(void *previous_footer, void *next_header){
-    return GET_ALLOC(previous_footer) && !GET_ALLOC(next_header);
-}
-static int is_previous_unallocated(void *previous_footer, void *next_header){
-    return !GET_ALLOC(previous_footer) && GET_ALLOC(next_header);
-}
-static int is_previous_and_next_unallocated(void *previous_footer, void *next_header){
-    return !GET_ALLOC(previous_footer) && !GET_ALLOC(next_header);
-}
-static unsigned int* find_index(size_t size){
-    for (int i = 0; i < 9 ; i++){
-        if (size > 2^(12)){
-            return &segregated_free_list[8];
-        }
-        if (size == 2^(i+4)){
+static unsigned int* find_index(size_t adjust_size){
+    for (int i = 0; i < 30 ; i++){
+        if (adjust_size == 1<<(i+3)){
             return &segregated_free_list[i];
         }
     }
 }
-static void  place_free_pointer_link(void* bp){
-    unsigned int* start_address = mem_heap_lo() + DSIZE;
-    while(1){
-        if (*start_address == NULL){
-            PUT(PREP(bp), (unsigned int*)(PREP(start_address)));
-            PUT(start_address, bp);
-            PUT(bp, 0);
-            return;
-        }
-        if (*start_address > (unsigned int)bp){
-            PUT(PREP(*start_address), (unsigned int*)PREP(bp));
-            PUT(bp, GET(start_address));
-            PUT(PREP(bp), (unsigned int*)(PREP(start_address)));
-            PUT(start_address, (unsigned int*)bp);
-            return;
-        }
-        start_address = GET(start_address);
+static void delete_free_list(unsigned int* index, size_t adjust_size){
+    if (*index == NULL){
+        return NULL;
     }
-}
 
-static void *coalesce(void *bp){
-    unsigned int* successor_address;
-    unsigned int* predecessor_address;
-    char* next_header = HDRP(NEXT_BLKP(bp));
-    char* previous_footer = FTRP(PREV_BLKP(bp));
-    size_t size = GET_SIZE(HDRP(bp));
-    if(is_previous_and_next_allocated(previous_footer, next_header)){
-        place_free_pointer_link(bp);
-        return bp;
+    if (**index != NULL){
+        init_header(*index);
+        *index = **index;
     }
-    if(is_next_unallocated(previous_footer, next_header)){
-        successor_address = GET(NEXT_BLKP(bp));
-        predecessor_address = GET(PREP(NEXT_BLKP(bp)));
-        size += GET_SIZE(next_header);
-        PUT(bp, successor_address);
-        PUT(PREP(bp), predecessor_address);
-        PUT((char*)predecessor_address - WSIZE, bp);
-        if(successor_address != NULL){
-           PUT(PREP(successor_address), PREP(bp));     
-        }
-        PUT(HDRP(bp), PACK(size,0));
-        PUT(FTRP(bp), PACK(size,0));
-        return bp;
-    }
-    if(is_previous_unallocated(previous_footer, next_header)){
-        size += GET_SIZE(HDRP(PREV_BLKP(bp)));
-        PUT(FTRP(bp), PACK(size,0));
-        PUT(HDRP(PREV_BLKP(bp)), PACK(size,0));
-        bp = PREV_BLKP(bp);
-        return bp;
-    }
-    if(is_previous_and_next_unallocated(previous_footer, next_header)){
-        size += GET_SIZE(HDRP(PREV_BLKP(bp))) + GET_SIZE(FTRP(NEXT_BLKP(bp)));
-        successor_address = GET(NEXT_BLKP(bp));
-        if (successor_address == NULL){
-            PUT(PREV_BLKP(bp), successor_address);
-            PUT(FTRP(NEXT_BLKP(bp)), PACK(size,0));
-            PUT(HDRP(PREV_BLKP(bp)), PACK(size,0));
-            return bp;
-        }
-        PUT(PREV_BLKP(bp), successor_address);
-        PUT(PREP(successor_address), PREP(PREV_BLKP(bp)));
-        PUT(FTRP(NEXT_BLKP(bp)), PACK(size,0));
-        PUT(HDRP(PREV_BLKP(bp)), PACK(size,0));
-        bp = PREV_BLKP(bp);
-        return bp;
-    }
-    return bp;
+    
 }
+static void divide_chunk(size_t size, void* bp){
 
+}
 static void* extend_heap(size_t words){
     unsigned int *bp;
     size_t size;
@@ -184,33 +105,28 @@ static void* extend_heap(size_t words){
         return NULL;
     }
     PUT(HDRP(bp), PACK(size,0));
-    PUT(FTRP(bp), PACK(size,0));
     PUT(HDRP(NEXT_BLKP(bp)), PACK(0,1));
-    return coalesce(bp);
 }
 
 int mm_init(void){
-    unsigned int* start_addr = mem_sbrk(4*WSIZE);
+    unsigned int* start_addr = mem_sbrk(2*WSIZE);
     if (is_heap_over_flow(start_addr)) {
         return -1;
     }
-    init_alignment_padding(start_addr);
-    init_prologue(start_addr);
-    init_epilogue(start_addr);
-
-    if (is_heap_over_flow(extend_heap(CHUNKSIZE/WSIZE))){
-        return -1;
+    for (int i = 0; i < 9 ; i++){
+        segregated_free_list[i] = NULL;
     }
-
+    init_alignment_padding(start_addr);
+    init_epilogue(start_addr);
     return 0;
 }
 
 
 size_t define_adjust_size(size_t size){
-    if (size <= DSIZE){
-        return 2*DSIZE;
+    if (size <= WSIZE){
+        return DSIZE;
     }
-    return DSIZE * (((size + (DSIZE) + (DSIZE - 1)) / DSIZE));
+    return DSIZE * (((size + WSIZE +(DSIZE - 1)) / DSIZE));
 }
 
 void *find_with_first_fit(size_t adjust_size){
@@ -246,12 +162,6 @@ void place(unsigned int* bp, size_t adjust_size){
         PUT(NEXT_BLKP(bp), 0);
         return;
     }
-    PUT(PREP(GET(bp)), (unsigned int*)PREP(NEXT_BLKP(bp)));
-    PUT(NEXT_BLKP(bp), GET(bp));
-    PUT(PREP(NEXT_BLKP(bp)), GET(PREP(bp)));
-}
-int find_right_fit(void* bp){
-    return bp != NULL;
 }
 /* 
  * mm_malloc - Allocate a block by incrementing the brk pointer.
@@ -260,23 +170,20 @@ int find_right_fit(void* bp){
 void *mm_malloc(size_t size){
     size_t adjust_size;
     size_t extend_size;
+    unsigned int *index;
     unsigned int *bp;
     if (size == 0){
         return NULL;
     }
     adjust_size = define_adjust_size(size);
-    bp = find_with_first_fit(adjust_size);
-    if (find_right_fit(bp)){
-        place(bp, adjust_size);
-        return (void *) bp;
-    }
+    index = find_index(adjust_size);
     extend_size = MAX(adjust_size, CHUNKSIZE);
     bp = extend_heap((extend_size/WSIZE));
     if (is_heap_over_flow(bp)){
         return NULL;
     }
-    place(bp, adjust_size);
-   
+    divide_chunk(bp, adjust_size);
+
     return (void*)bp;
 }
 

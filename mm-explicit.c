@@ -59,7 +59,7 @@ team_t team = {
 
 static void init_prologue(void* start_addr) {
     PUT(start_addr + WSIZE, PACK(2*DSIZE,1));
-    PUT(start_addr + 2*WSIZE, 0);
+    PUT(start_addr + 2*WSIZE, NULL);
     PUT(start_addr + 3*WSIZE, 0);
     PUT(start_addr + 4*WSIZE, PACK(2*DSIZE,1));
     return;
