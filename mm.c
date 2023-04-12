@@ -79,7 +79,7 @@ static size_t even_number_words_alignment(size_t words){
 }
 
 static int is_NULL(int index){
-    if (segregated_free_list[index] == NULL){
+    if (segregated_free_list[index] == 0){
         return 1;
     }
     return 0;
@@ -99,11 +99,10 @@ static void insert_free_list(int index, void* bp){
 }
 
 static unsigned int* delete_free_list(int index, size_t adjust_size){
-    unsigned int* allocated_bp;
+    unsigned int* allocated_bp = segregated_free_list[index];
+    unsigned int* next_bp = GET(NEXT(segregated_free_list[index]));
     init_header(segregated_free_list[index], adjust_size);
-    allocated_bp = segregated_free_list[index];
-    segregated_free_list[index] = GET(NEXT(segregated_free_list[index]));
-    //*segregated_free_list[index]
+    segregated_free_list[index] = next_bp;
     return allocated_bp;
 }
 
@@ -112,13 +111,12 @@ static void divide_chunk(size_t adjust_size, void* bp){
     segregated_free_list[index] = bp;
     while(1){
         if ((char*)bp + adjust_size > mem_heap_hi() - 3){
-            PUT(NEXT((char*)bp + adjust_size), NULL);
+            PUT(NEXT(bp), 0);
             break;
         }
         PUT(NEXT(bp), (unsigned int*)((char*)bp + adjust_size));
         bp = GET(NEXT(bp));
     }
-    
 }
 
 static void* extend_heap(size_t words, size_t adjust_size){
@@ -129,7 +127,7 @@ static void* extend_heap(size_t words, size_t adjust_size){
     if((long)bp == -1){
         return NULL;
     }
-    PUT(mem_heap_hi(), PACK(0,1));
+    PUT(mem_heap_hi()-3, PACK(0,1));
     divide_chunk(adjust_size, bp);
 }
 
@@ -138,8 +136,8 @@ int mm_init(void){
     if (is_heap_over_flow(start_addr)) {
         return -1;
     }
-    for (int i = 0; i < 9 ; i++){
-        segregated_free_list[i] = NULL;
+    for (int i = 0; i < 30 ; i++){
+        segregated_free_list[i] = 0;
     }
     init_alignment_padding(start_addr);
     init_epilogue(start_addr);
@@ -147,10 +145,21 @@ int mm_init(void){
 }
 
 size_t define_adjust_size(size_t size){
-    if (size <= WSIZE){
-        return DSIZE;
+    int n = 0;
+    int flag = 0;
+    size = size + WSIZE;
+    while(1){
+        if(size == 1){
+            if (flag == 0){
+                return 1<<n;
+            }
+            break;
+        }
+        flag = flag + (size % 2);
+        size = (size) / 2;
+        n += 1;
     }
-    return DSIZE * (((size + WSIZE +(DSIZE - 1)) / DSIZE));
+    return 1<<(n+1);
 }
 
 void *mm_malloc(size_t size){
@@ -170,7 +179,7 @@ void *mm_malloc(size_t size){
             return NULL;
         }
         index = find_index(adjust_size);
-        return delete_free_list(index, adjust_size);
+        return (void*)delete_free_list(index, adjust_size);
     }
     return (void*)delete_free_list(index, adjust_size);
     
