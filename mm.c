@@ -41,8 +41,7 @@ team_t team = {
 
 /* Given block ptr bp, compute address of its header and footer */
 #define HDRP(bp) ((char *)(bp) - WSIZE)
-#define NXRP(bp) ((char *)(bp) - WSIZE)
-#define BPRP(bn) ((char *)(bn) - WSIZE)
+#define NEXT(bp) ((char *)(bp) - WSIZE)
 /* Given block ptr bp, compute address of next and previous blocks */
 #define NEXT_BLKP(bp) ((char *)(bp) + GET_SIZE(((char *)(bp) - WSIZE)))
 /* single word (4) or double word (8) alignment */
@@ -53,21 +52,25 @@ team_t team = {
 
 #define SIZE_T_SIZE (ALIGN(sizeof(size_t)))
 
-static unsigned int segregated_free_list[30];
+static unsigned int* segregated_free_list[30];
 
 
 static void init_epilogue(void* start_addr){
     PUT(start_addr + WSIZE, PACK(1,0));
 }
+
 static void init_alignment_padding(void* start_addr){
     PUT(start_addr, 0);
 }
-static void init_header(void* bp, size_t size){
-    PUT(HDRP(bp), PACK(size,allocate));
-}
+
 static int is_heap_over_flow(void* start_addr){
     return start_addr == (void *)-1;
 }
+
+static void init_header(void* bp, size_t size){
+    PUT(HDRP(bp), PACK(size, 1));
+}
+
 static size_t even_number_words_alignment(size_t words){
     if (words % 2){
         return (words+1)*WSIZE;
@@ -75,28 +78,50 @@ static size_t even_number_words_alignment(size_t words){
     return words*WSIZE;
 }
 
-static unsigned int* find_index(size_t adjust_size){
+static int is_NULL(int index){
+    if (segregated_free_list[index] == NULL){
+        return 1;
+    }
+    return 0;
+}
+
+static int find_index(size_t adjust_size){
     for (int i = 0; i < 30 ; i++){
         if (adjust_size == 1<<(i+3)){
-            return &segregated_free_list[i];
+            return i;
         }
     }
 }
-static void delete_free_list(unsigned int* index, size_t adjust_size){
-    if (*index == NULL){
-        return NULL;
-    }
 
-    if (**index != NULL){
-        init_header(*index);
-        *index = **index;
+static void insert_free_list(int index, void* bp){
+    PUT(NEXT(bp), segregated_free_list[index]);
+    segregated_free_list[index] = bp;
+}
+
+static unsigned int* delete_free_list(int index, size_t adjust_size){
+    unsigned int* allocated_bp;
+    init_header(segregated_free_list[index], adjust_size);
+    allocated_bp = segregated_free_list[index];
+    segregated_free_list[index] = GET(NEXT(segregated_free_list[index]));
+    //*segregated_free_list[index]
+    return allocated_bp;
+}
+
+static void divide_chunk(size_t adjust_size, void* bp){
+    int index = find_index(adjust_size);
+    segregated_free_list[index] = bp;
+    while(1){
+        if ((char*)bp + adjust_size > mem_heap_hi() - 3){
+            PUT(NEXT((char*)bp + adjust_size), NULL);
+            break;
+        }
+        PUT(NEXT(bp), (unsigned int*)((char*)bp + adjust_size));
+        bp = GET(NEXT(bp));
     }
     
 }
-static void divide_chunk(size_t size, void* bp){
 
-}
-static void* extend_heap(size_t words){
+static void* extend_heap(size_t words, size_t adjust_size){
     unsigned int *bp;
     size_t size;
     size = even_number_words_alignment(words);
@@ -104,8 +129,8 @@ static void* extend_heap(size_t words){
     if((long)bp == -1){
         return NULL;
     }
-    PUT(HDRP(bp), PACK(size,0));
-    PUT(HDRP(NEXT_BLKP(bp)), PACK(0,1));
+    PUT(mem_heap_hi(), PACK(0,1));
+    divide_chunk(adjust_size, bp);
 }
 
 int mm_init(void){
@@ -121,7 +146,6 @@ int mm_init(void){
     return 0;
 }
 
-
 size_t define_adjust_size(size_t size){
     if (size <= WSIZE){
         return DSIZE;
@@ -129,76 +153,35 @@ size_t define_adjust_size(size_t size){
     return DSIZE * (((size + WSIZE +(DSIZE - 1)) / DSIZE));
 }
 
-void *find_with_first_fit(size_t adjust_size){
-    unsigned int* start_address = (unsigned int*)(mem_heap_lo() + DSIZE);
-    while(1){
-        if(start_address == NULL){
-            return NULL;
-        }
-        if(!GET_ALLOC(HDRP(start_address)) && GET_SIZE(HDRP(start_address)) >= adjust_size){
-            return (void *) start_address;
-        }
-        start_address = GET(start_address);
-    }
-}
-void place(unsigned int* bp, size_t adjust_size){
-    size_t total_size = GET_SIZE(HDRP(bp));
-    if (total_size - adjust_size < 2*DSIZE){
-        init_header_and_footer(bp, total_size,1);
-        PUT((char *)(GET(PREP(bp)))-WSIZE, GET(bp));
-        if(*bp == NULL){
-            return;
-        }
-        PUT(PREP(GET(bp)), GET(PREP(bp)));
-        return;
-    }
-    init_header_and_footer(bp, adjust_size, 1);
-    init_header_and_footer(NEXT_BLKP(bp), total_size-adjust_size, 0);
-
-    PUT((char *)(GET(PREP(bp)))-WSIZE, (unsigned int*)NEXT_BLKP(bp));
-    
-    if(*bp == NULL){
-        PUT(PREP(NEXT_BLKP(bp)), GET(PREP(bp)));
-        PUT(NEXT_BLKP(bp), 0);
-        return;
-    }
-}
-/* 
- * mm_malloc - Allocate a block by incrementing the brk pointer.
- *     Always allocate a block whose size is a multiple of the alignment.
- */
 void *mm_malloc(size_t size){
     size_t adjust_size;
     size_t extend_size;
-    unsigned int *index;
+    int index;
     unsigned int *bp;
     if (size == 0){
         return NULL;
     }
     adjust_size = define_adjust_size(size);
     index = find_index(adjust_size);
-    extend_size = MAX(adjust_size, CHUNKSIZE);
-    bp = extend_heap((extend_size/WSIZE));
-    if (is_heap_over_flow(bp)){
-        return NULL;
+    if(is_NULL(index)){
+        extend_size = MAX(adjust_size, CHUNKSIZE);
+        bp = extend_heap((extend_size/WSIZE), adjust_size);
+        if (is_heap_over_flow(bp)){
+            return NULL;
+        }
+        index = find_index(adjust_size);
+        return delete_free_list(index, adjust_size);
     }
-    divide_chunk(bp, adjust_size);
-
-    return (void*)bp;
+    return (void*)delete_free_list(index, adjust_size);
+    
 }
 
-/*
- * mm_free - Freeing a block does nothing.
- */
 void mm_free(void *ptr){
     size_t size = GET_SIZE(HDRP(ptr));
-    init_header_and_footer(ptr, size, 0);
-    coalesce(ptr);
+    int index = find_index(size);
+    insert_free_list(index, ptr);
 }
 
-/*
- * mm_realloc - Implemented simply in terms of mm_malloc and mm_free
- */
 void *mm_realloc(void *ptr, size_t size){
     if(size <= 0){ 
         mm_free(ptr);

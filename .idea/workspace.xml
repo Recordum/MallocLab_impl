@@ -19,6 +19,7 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="b0566422-8daa-45c5-a7e1-8713fc97cd11" name="Changes" comment="dd">
+      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/.vscode/settings.json" beforeDir="false" afterPath="$PROJECT_DIR$/.vscode/settings.json" afterDir="false" />
       <change beforePath="$PROJECT_DIR$/mm _explicit.c" beforeDir="false" />
       <change beforePath="$PROJECT_DIR$/mm.c" beforeDir="false" afterPath="$PROJECT_DIR$/mm.c" afterDir="false" />
@@ -67,6 +68,13 @@
     &quot;vue.rearranger.settings.migration&quot;: &quot;true&quot;
   }
 }</component>
+  <component name="RunManager">
+    <configuration default="true" type="CMakeRunConfiguration" factoryName="Application" REDIRECT_INPUT="false" ELEVATE="false" USE_EXTERNAL_CONSOLE="false" PASS_PARENT_ENVS_2="true">
+      <method v="2">
+        <option name="com.jetbrains.cidr.execution.CidrBuildBeforeRunTaskProvider$BuildBeforeRunTask" enabled="true" />
+      </method>
+    </configuration>
+  </component>
   <component name="SpellCheckerSettings" RuntimeDictionaries="0" Folders="0" CustomDictionaries="0" DefaultDictionary="application-level" UseSingleDictionary="true" transferred="true" />
   <component name="TaskManager">
     <task active="true" id="Default" summary="Default task">
@@ -83,7 +91,7 @@
       <workItem from="1680872731402" duration="20000" />
       <workItem from="1680872852789" duration="368000" />
       <workItem from="1680873392954" duration="98000" />
-      <workItem from="1681226573360" duration="1000" />
+      <workItem from="1681226573360" duration="595000" />
     </task>
     <task id="LOCAL-00001" summary="dd">
       <created>1680871768740</created>
